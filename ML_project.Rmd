@@ -1,0 +1,125 @@
+---
+title: "Practical Machine Learning: Prediction Assignment"
+author: "Nick"
+output: 
+  html_document:
+    keep_md: true
+---
+
+# Introduction
+
+The goal of this project is to use data collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner in which praticipants did the exercise. This is indicated by the "classe" variable in the training set, which is a factor variable with 5 levels: A, B, C, D and E.
+
+The large dataset contains many rows and columns and any variables beside "classe" can be used to build the prediction model. 5-fold cross validation random forest is chosen as the machine learning method because of its high accuracy. Interpretability is not important since the main focus is on correct prediction. The machine learning algorithm is then applied to the 20 test cases available in the test data.  
+
+# Background 
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement - a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+# Data Processing 
+
+## Data Source
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+## Data Cleaning
+
+Loading caret and other necessary libraries.
+```{r loadlib, echo=TRUE, results= "hide", message=FALSE}
+library(caret)
+library(corrplot)
+library(rpart.plot)
+```
+
+Reading raw data from downloaded files, both training and testing set.
+```{r readData, echo=TRUE}
+rawTrain <- read.csv("pml-training.csv", na.strings = c("","NA"))
+rawTest <- read.csv("pml-testing.csv", na.strings = c("","NA"))
+```
+
+The raw data in training set contains 19622 rows and 160 columns, in which "classe" is one of them. The number of each class is shown below.  
+```{r TrainData, echo=TRUE}
+dim(rawTrain)
+table(rawTrain$classe)
+```
+
+The first 5 columns indicates row number ("X"), user name and timestamps. They are not meaningful for prediction and can be removed from the data sets. 
+```{r rm_name, echo=TRUE}
+names(rawTrain)[1:5]
+TrainSet <- rawTrain[,-(1:5)]
+TestSet <- rawTest[,-(1:5)]
+```
+
+Checking for missing values, it can be seen that 55 columns have no missing values and 100 columns contain mostly missing values (up to 98%). Therefore, these 100 columns should be deleted from the data sets. Near zero variance predictors should also be identified and deleted. Final training data set contains 19622 rows and 54 columns. 
+```{r NAcheck, echo=TRUE}
+table(colSums(is.na(TrainSet)))
+TrainSet <- TrainSet[,colSums(is.na(TrainSet))==0]
+TestSet <- TestSet[,colSums(is.na(TrainSet))==0]
+```
+
+```{r NearZero, echo=TRUE}
+zeroVar <- nearZeroVar(TrainSet)
+TrainSet <- TrainSet[,-zeroVar]
+TestSet <- TestSet[, -zeroVar]
+dim(TrainSet)
+```
+
+## Data Partition
+
+Data in the training set is splitted into training (used to build model) and validating with ratio 0.7/0.3.
+```{r DataPartition, echo=TRUE}
+set.seed(123)
+inTrain <- createDataPartition(TrainSet$classe, p = 0.7, list = F)
+training <- TrainSet[inTrain, ]
+validate <- TrainSet[-inTrain, ]
+```
+
+A graphical plot displays the correlation matrix of different variables in the training set
+```{r corplot, echo=TRUE}
+corrplot(cor(training[, -54]), tl.cex = 0.5)
+```
+
+# Machine Learning & Prediction
+
+## Decision Tree
+
+Constructing a predictive model for activity recognition using Decision Tree algorithm provided by method "rpart2" in caret package. The tree model is shown in the figure. 
+```{r Tree, echo=TRUE}
+DecisionTree <- train(classe~., data = training, method = "rpart2")
+prp(DecisionTree$finalModel)
+```
+
+To estimate the performance of the decision tree model, apply it to predict "classe" in the validation set. Out-of-sample accuracy is 0.7998 and kappa is 0.7475. 
+```{r predict1, echo=TRUE}
+TreePred <- predict(DecisionTree, validate)
+confusionMatrix(validate$classe, TreePred)
+```
+
+## Random Forest
+
+Random forest is a machine learning method that constructs a multiple of decision trees at training time. The forest prediction is obtained by taking the most common class or the mean-value tree predictions. Hence, it is expected to have a better predicting power than a single decision tree. 
+
+Building a predictive model using random forest algorithm with 5-fold cross validation, provided by "rf" method in caret package.  
+```{r RF, echo=TRUE}
+RdForest <- train(classe~., data = training, method = "rf", trControl=trainControl(method = "cv", number = 5))
+```
+
+Applying the random forest model to predict "classe" in the validation set and examine the performance of the model. Out-of-sample accuracy is  0.9981 and kappa is 0.9976. The predictive power is greatly improved compared to the single decision tree model.
+```{r predict2, echo=TRUE}
+RFpred <- predict(RdForest, validate)
+confusionMatrix(validate$classe, RFpred)
+```
+
+## Prediction in Test Set
+
+Applying the Random Forest model to predict "classe" in the test set, which contains 20 rows of observation.
+```{r final, echo=TRUE}
+result <- predict(RdForest, TestSet)
+result
+```
